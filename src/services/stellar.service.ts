@@ -1,5 +1,6 @@
-import { Server, Horizon, Keypair, TransactionBuilder, Operation, Networks } from '@stellar/stellar-sdk';
+import { Horizon, Keypair, TransactionBuilder, Operation, Networks } from '@stellar/stellar-sdk';
 import config from 'config';
+import { Server } from '@stellar/stellar-sdk/lib/rpc';
 
 export class StellarService {
   private horizonServer: Server;
@@ -24,7 +25,7 @@ export class StellarService {
   public async getAccount(accountId: string): Promise<Horizon.AccountResponse> {
     try {
       return await this.horizonServer.loadAccount(accountId);
-    } catch (error) {
+    } catch (error:any) {
       throw new Error(`Account not found: ${error.message}`);
     }
   }

@@ -1,19 +1,28 @@
 import express from 'express';
 import config from 'config';
 import { Server } from 'http';
-import { StellarService } from './services/stellar.service';
 import helmet from 'helmet';
 import cors from 'cors';
+import dotenv from 'dotenv';
+import winston from 'winston';
+import mcpRouter from './controllers/mcp.controller';
+
+dotenv.config();
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.Console(),
+  ],
+});
 
 class App {
   public app: express.Application;
   public server!: Server;
-  public stellarService: StellarService;
 
   constructor() {
     this.app = express();
-    this.stellarService = new StellarService();
-    
     this.configureMiddleware();
     this.configureRoutes();
     this.configureErrorHandling();
@@ -26,23 +35,12 @@ class App {
   }
 
   private configureRoutes(): void {
-    this.app.get('/health', (req, res) => {
-      res.status(200).json({ status: 'ok', network: this.stellarService.currentNetwork });
-    });
-
-    this.app.get('/api/:version/accounts/:accountId', async (req, res) => {
-      try {
-        const account = await this.stellarService.getAccount(req.params.accountId);
-        res.json(account);
-      } catch (error) {
-        res.status(404).json({ error: 'Account not found' });
-      }
-    });
+    this.app.use('/api/v1', mcpRouter);
   }
 
   private configureErrorHandling(): void {
     this.app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-      console.error(err.stack);
+      logger.error(err.stack);
       res.status(500).json({
         error: 'Internal Server Error',
         message: err.message
@@ -53,8 +51,7 @@ class App {
   public start(): void {
     const port = config.get<number>('server.port');
     this.server = this.app.listen(port, () => {
-      console.log(`Server running on port ${port}`);
-      this.stellarService.initialize();
+      logger.info(`Server running on port ${port}`);
     });
   }
 }

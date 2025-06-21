@@ -1,65 +1,246 @@
-import express from 'express';
-import config from 'config';
-import { Server } from 'http';
-import helmet from 'helmet';
-import cors from 'cors';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod';
+import { BlendService } from './services/blend.service.js';
+import { StellarService } from './services/stellar.service.js';
+import { PoolV1, PoolV2 } from '@blend-capital/blend-sdk';
 import dotenv from 'dotenv';
-import winston from 'winston';
-import { McpController } from './controllers/mcp.controller';
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('UNHANDLED REJECTION:', reason, promise);
+  process.exit(1);
+});
 
 dotenv.config();
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  transports: [
-    new winston.transports.Console(),
-  ],
-});
-
-class App {
-  public app: express.Application;
-  public server!: Server;
-
-  constructor() {
-    this.app = express();
-    this.configureMiddleware();
-    this.configureRoutes();
-    this.configureErrorHandling();
-  }
-
-  private configureMiddleware(): void {
-    this.app.use(express.json());
-    this.app.use(helmet());
-    this.app.use(cors());
-  }
-
-  private configureRoutes(): void {
-    const mcpController = new McpController();
-    this.app.use('/mcp', mcpController.router);
-
-    this.app.get('/', (req, res) => {
-      res.send('MCP Server is running!');
-    });
-  }
-
-  private configureErrorHandling(): void {
-    this.app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-      logger.error(err.stack);
-      res.status(500).json({
-        error: 'Internal Server Error',
-        message: err.message
-      });
-    });
-  }
-
-  public start(): void {
-    const port = config.get<number>('server.port');
-    this.server = this.app.listen(port, () => {
-      logger.info(`Server running on port ${port}`);
-    });
-  }
+/**
+ * Custom replacer function for JSON.stringify to handle BigInts.
+ * @param key The key being serialized.
+ * @param value The value being serialized.
+ * @returns The value, with BigInts converted to strings.
+ */
+function jsonReplacer(key: any, value: any) {
+  return typeof value === 'bigint' ? value.toString() : value;
 }
 
-const app = new App();
-app.start();
+// 1. Create an MCP server instance
+const server = new McpServer({
+  name: 'blend-protocol-server',
+  version: '2.0.0',
+  title: 'Blend Protocol MCP',
+  description: 'A server for interacting with the Blend DeFi Protocol on the Stellar network.',
+});
+
+const blendService = new BlendService();
+const stellarService = new StellarService();
+
+// 2. Register tools with explicit schemas
+
+// --- READ-ONLY TOOLS ---
+
+server.registerTool(
+  'loadPoolData',
+  {
+    title: 'Load Blend Pool Data',
+    description: "Loads comprehensive data for a given Blend pool. Can optionally include a specific user's position data.",
+    inputSchema: {
+      poolId: z.string().describe('The contract ID of the Blend pool to load.'),
+      userAddress: z
+        .string()
+        .optional()
+        .describe("(Optional) The public key of a user to load their specific data for the pool."),
+    },
+  },
+  async ({ poolId, userAddress }: { poolId: string; userAddress?: string }) => {
+    const meta = await blendService.loadPoolMeta(poolId);
+    const pool = await blendService.loadPool(poolId, meta);
+    let user;
+    if (userAddress) {
+      user = await blendService.loadPoolUser(pool, userAddress);
+    }
+    const oracle = await blendService.loadPoolOracle(pool);
+    const backstop_pool = await blendService.loadBackstopPool(meta);
+    const result = {
+      pool: pool,
+      user: user || 'Not requested',
+      oracle: oracle,
+      backstop_pool: backstop_pool,
+    };
+    return { content: [{ type: 'text', text: JSON.stringify(result, jsonReplacer, 2) }] };
+  }
+);
+
+server.registerTool(
+    "getTokenBalance",
+    {
+        title: "Get Token Balance",
+        description: "Gets the balance of a specific token for a given user address.",
+        inputSchema: {
+            tokenId: z.string().describe("The asset ID (e.g., 'USDC' or a contract ID) or 'native' for XLM."),
+            userAddress: z.string().describe("The public key of the user."),
+        }
+    },
+    async ({ tokenId, userAddress }: { tokenId: string; userAddress: string }) => {
+        const balance = await blendService.getTokenBalance(tokenId, userAddress);
+        return { content: [{ type: 'text', text: `The balance is: ${balance.toString()}` }] };
+    }
+);
+
+server.registerTool(
+    "getFeeStats",
+    {
+        title: "Get Fee Stats",
+        description: "Gets the current Soroban network fee statistics.",
+        inputSchema: {},
+    },
+    async () => {
+        const feeStats = await blendService.getFeeStats();
+        return { content: [{ type: 'text', text: JSON.stringify(feeStats, jsonReplacer, 2) }] };
+    }
+);
+
+server.registerTool(
+  'getPoolEvents',
+  {
+    title: 'Get Pool Events',
+    description: 'Gets historical events for a specific pool.',
+    inputSchema: {
+      poolId: z.string().describe('The contract ID of the pool.'),
+      version: z.enum(['V1', 'V2']).describe('The version of the pool.'),
+      startLedger: z.number().describe('The ledger number to start fetching events from.'),
+    },
+  },
+  async ({ poolId, version, startLedger }: { poolId: string; version: 'V1' | 'V2'; startLedger: number }) => {
+    const events = await blendService.getPoolEvents(poolId, version, startLedger);
+    return { content: [{ type: 'text', text: JSON.stringify(events, jsonReplacer, 2) }] };
+  }
+);
+
+server.registerTool(
+  'loadBackstopData',
+  {
+    title: 'Load Backstop Data',
+    description: 'Loads data for the main Blend backstop contract.',
+    inputSchema: {
+      version: z.enum(['V1', 'V2']).describe('The version of the backstop to load.'),
+    },
+  },
+  async ({ version }: { version: 'V1' | 'V2' }) => {
+    const backstopData = await blendService.loadBackstop(version);
+    return { content: [{ type: 'text', text: JSON.stringify(backstopData, jsonReplacer, 2) }] };
+  }
+);
+
+server.registerTool(
+  'loadTokenMetadata',
+  {
+    title: 'Load Token Metadata',
+    description: 'Loads the metadata for a given token/asset.',
+    inputSchema: {
+      assetId: z.string().describe('The contract ID of the asset.'),
+    },
+  },
+  async ({ assetId }: { assetId: string }) => {
+    const metadata = await blendService.loadTokenMetadata(assetId);
+    return { content: [{ type: 'text', text: JSON.stringify(metadata, jsonReplacer, 2) }] };
+  }
+);
+
+server.registerTool(
+  'simulateOperation',
+  {
+    title: 'Simulate Operation',
+    description: 'Simulates a transaction operation without submitting it to the network.',
+    inputSchema: {
+      operationXdr: z.string().describe('The base64-encoded XDR of the operation to simulate.'),
+      userAddress: z.string().describe('The public key of the user address to use as the source for the simulation.'),
+    },
+  },
+  async ({ operationXdr, userAddress }: { operationXdr: string; userAddress: string }) => {
+    const simulationResult = await blendService.simulateOperation(operationXdr, userAddress);
+    return { content: [{ type: 'text', text: JSON.stringify(simulationResult, jsonReplacer, 2) }] };
+  }
+);
+
+// --- WRITE/TRANSACTION TOOLS ---
+
+const transactionInputSchema = {
+    userAddress: z.string().describe("The Stellar public key of the user performing the action."),
+    amount: z.number().describe("The amount of the asset for the transaction."),
+    asset: z.string().describe("The contract ID of the asset being used."),
+    poolId: z.string().describe("The contract ID of the pool for the transaction."),
+    privateKey: z.string().optional().describe("(Optional) The secret key of the user. If not provided, the server's AGENT_SECRET will be used."),
+};
+
+const transactionObjectSchema = z.object(transactionInputSchema);
+type TransactionParams = z.infer<typeof transactionObjectSchema>;
+
+server.registerTool('lend', {
+    title: "Lend to Pool",
+    description: "Submits a transaction to lend (supply collateral) to a pool.",
+    inputSchema: transactionInputSchema,
+}, async (params: TransactionParams) => {
+    const txHash = await blendService.lend(params);
+    return { content: [{ type: 'text', text: `Lend transaction submitted successfully. Hash: ${txHash}` }] };
+});
+
+server.registerTool('withdraw', {
+    title: "Withdraw from Pool",
+    description: "Submits a transaction to withdraw assets from a pool.",
+    inputSchema: transactionInputSchema,
+}, async (params: TransactionParams) => {
+    const txHash = await blendService.withdraw(params);
+    return { content: [{ type: 'text', text: `Withdraw transaction submitted successfully. Hash: ${txHash}` }] };
+});
+
+server.registerTool('borrow', {
+    title: "Borrow from Pool",
+    description: "Submits a transaction to borrow assets from a pool.",
+    inputSchema: transactionInputSchema,
+}, async (params: TransactionParams) => {
+    const txHash = await blendService.borrow(params);
+    return { content: [{ type: 'text', text: `Borrow transaction submitted successfully. Hash: ${txHash}` }] };
+});
+
+server.registerTool('repay', {
+    title: "Repay to Pool",
+    description: "Submits a transaction to repay borrowed assets to a pool.",
+    inputSchema: transactionInputSchema,
+}, async (params: TransactionParams) => {
+    const txHash = await blendService.repay(params);
+    return { content: [{ type: 'text', text: `Repay transaction submitted successfully. Hash: ${txHash}` }] };
+});
+
+const claimRewardsSchema = {
+    userAddress: z.string().describe("The Stellar public key of the user performing the action."),
+    poolId: z.string().describe("The contract ID of the pool to claim rewards from."),
+    privateKey: z.string().optional().describe("(Optional) The secret key of the user. If not provided, the server's AGENT_SECRET will be used."),
+};
+const claimRewardsObjectSchema = z.object(claimRewardsSchema);
+type ClaimRewardsParams = z.infer<typeof claimRewardsObjectSchema>;
+
+server.registerTool('claimRewards', {
+    title: "Claim Rewards",
+    description: "Submits a transaction to claim available rewards from a pool.",
+    inputSchema: claimRewardsSchema,
+}, async (params: ClaimRewardsParams) => {
+    const txHash = await blendService.claim(params);
+    return { content: [{ type: 'text', text: `Claim transaction submitted successfully. Hash: ${txHash}` }] };
+});
+
+// 3. Connect to a transport and run the server
+async function run() {
+  const transport = new StdioServerTransport();
+  await server.connect(transport);
+  console.error('Blend Protocol MCP Server connected via stdio and ready.');
+}
+
+run().catch((err) => {
+  console.error('Failed to run MCP server:', err);
+  process.exit(1);
+});

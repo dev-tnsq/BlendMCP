@@ -22,24 +22,14 @@ import {
   poolEventV2FromEventResponse,
   RequestType,
 } from '@blend-capital/blend-sdk';
-import Server, {
-  Account,
-  Address,
-  Asset,
-  BASE_FEE,
-  Horizon,
-  Networks,
-  rpc,
-  TransactionBuilder,
-  xdr,
-  Keypair,
-} from '@stellar/stellar-sdk';
-import config from 'config';
+import stellarSdk from '@stellar/stellar-sdk';
+const { Server, Account, Asset, BASE_FEE, Horizon, Networks, rpc, TransactionBuilder, xdr, Keypair } =
+  stellarSdk;
 
 const AGENT_SECRET = process.env.AGENT_SECRET || '';
-const HORIZON_URL = config.get<string>('stellar.testnet.horizonUrl');
-const RPC_URL = process.env.RPC_URL || config.get<string>('stellar.testnet.horizonUrl');
-const NETWORK_PASSPHRASE = config.get<string>('stellar.testnet.networkPassphrase');
+const HORIZON_URL = 'https://horizon-testnet.stellar.org';
+const RPC_URL = 'https://soroban-testnet.stellar.org';
+const NETWORK_PASSPHRASE = 'Test SDF Network ; September 2015';
 const NETWORK_OPTS = { allowHttp: true };
 
 function getNetwork() {
@@ -231,12 +221,12 @@ export class BlendService {
       const horizon = new Horizon.Server(network.horizonUrl, network.opts);
       const account = await horizon.loadAccount(userAddress);
       if (tokenId === 'native' || tokenId === 'XLM') {
-        const nativeBalance = account.balances.find((b) => b.asset_type === 'native');
+        const nativeBalance = account.balances.find((b: any) => b.asset_type === 'native');
         if (nativeBalance) {
           return BigInt(nativeBalance.balance.replace('.', ''));
         }
       }
-      const assetBalance = account.balances.find((b) => {
+      const assetBalance = account.balances.find((b: any) => {
         if ('asset_code' in b && 'asset_issuer' in b) {
           return b.asset_code === tokenId || b.asset_issuer === tokenId;
         }

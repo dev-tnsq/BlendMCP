@@ -1,5 +1,15 @@
 import { Horizon, Keypair, TransactionBuilder, Operation, Networks } from '@stellar/stellar-sdk';
-import config from 'config';
+
+const stellarConfig = {
+  testnet: {
+    horizonUrl: 'https://horizon-testnet.stellar.org',
+    networkPassphrase: 'Test SDF Network ; September 2015',
+  },
+  mainnet: {
+    horizonUrl: 'https://horizon.stellar.org',
+    networkPassphrase: 'Public Global Stellar Network ; September 2015',
+  },
+};
 
 export class StellarService {
   private horizonServer: Horizon.Server;
@@ -7,8 +17,8 @@ export class StellarService {
   public currentNetwork: 'testnet' | 'mainnet' = 'testnet';
 
   constructor() {
-    this.horizonServer = new Horizon.Server(config.get<string>(`stellar.${this.currentNetwork}.horizonUrl`));
-    this.networkPassphrase = config.get<string>(`stellar.${this.currentNetwork}.networkPassphrase`);
+    this.horizonServer = new Horizon.Server(stellarConfig.testnet.horizonUrl);
+    this.networkPassphrase = stellarConfig.testnet.networkPassphrase;
   }
 
   public initialize(): void {
@@ -17,8 +27,8 @@ export class StellarService {
 
   public switchNetwork(network: 'testnet' | 'mainnet'): void {
     this.currentNetwork = network;
-    this.horizonServer = new Horizon.Server(config.get<string>(`stellar.${network}.horizonUrl`));
-    this.networkPassphrase = config.get<string>(`stellar.${network}.networkPassphrase`);
+    this.horizonServer = new Horizon.Server(stellarConfig[network].horizonUrl);
+    this.networkPassphrase = stellarConfig[network].networkPassphrase;
   }
 
   public async getAccount(accountId: string): Promise<Horizon.AccountResponse> {
@@ -57,7 +67,7 @@ export class StellarService {
     return builtTransaction.toXDR();
   }
 
-  public submitTransaction(transactionXdr: string): Promise<Horizon.SubmitTransactionResponse> {
+  public submitTransaction(transactionXdr: string): Promise<any> {
     const transaction = TransactionBuilder.fromXDR(transactionXdr, this.networkPassphrase);
     return this.horizonServer.submitTransaction(transaction);
   }

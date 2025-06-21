@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import winston from 'winston';
-import mcpRouter from './controllers/mcp.controller';
+import { McpController } from './controllers/mcp.controller';
 
 dotenv.config();
 
@@ -35,7 +35,12 @@ class App {
   }
 
   private configureRoutes(): void {
-    this.app.use('/api/v1', mcpRouter);
+    const mcpController = new McpController();
+    this.app.use('/mcp', mcpController.router);
+
+    this.app.get('/', (req, res) => {
+      res.send('MCP Server is running!');
+    });
   }
 
   private configureErrorHandling(): void {

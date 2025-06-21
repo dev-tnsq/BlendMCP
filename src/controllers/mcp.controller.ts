@@ -1,31 +1,41 @@
-import express from 'express';
-import Joi from 'joi';
+import { Request, Response, Router } from 'express';
 import { BlendService } from '../services/blend.service';
 
-const router = express.Router();
-const blendService = new BlendService();
+export class McpController {
+  public router = Router();
+  private blendService = new BlendService();
 
-const lendSchema = Joi.object({
-  userAddress: Joi.string().required(),
-  amount: Joi.number().positive().required(),
-  asset: Joi.string().required(),
-  poolId: Joi.string().required(),
-  privateKey: Joi.string().required()
-});
-
-router.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
-});
-
-router.post('/tool/lend', async (req, res) => {
-  const { error, value } = lendSchema.validate(req.body);
-  if (error) return res.status(400).json({ error: error.details[0].message });
-  try {
-    const txHash = await blendService.lend(value);
-    res.json({ success: true, txHash });
-  } catch (e: any) {
-    res.status(500).json({ success: false, error: e.message });
+  constructor() {
+    this.initializeRoutes();
   }
-});
 
-export default router; 
+  public initializeRoutes() {
+    this.router.post('/lend', this.lend);
+  }
+
+  lend = async (req: Request, res: Response) => {
+    try {
+      const { userAddress, amount, asset, poolId, privateKey } = req.body;
+      if (!userAddress || !amount || !asset || !poolId) {
+        return res.status(400).json({ error: 'Missing required parameters.' });
+      }
+
+      const txHash = await this.blendService.lend({
+        userAddress,
+        amount,
+        asset,
+        poolId,
+        privateKey,
+      });
+
+      res.status(200).json({ success: true, txHash });
+    } catch (error) {
+      console.error('Lend failed:', error);
+      if (error instanceof Error) {
+        res.status(500).json({ error: error.message });
+      } else {
+        res.status(500).json({ error: 'An unknown error occurred.' });
+      }
+    }
+  };
+} 

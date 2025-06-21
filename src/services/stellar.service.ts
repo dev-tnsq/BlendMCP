@@ -1,14 +1,13 @@
 import { Horizon, Keypair, TransactionBuilder, Operation, Networks } from '@stellar/stellar-sdk';
 import config from 'config';
-import { Server } from '@stellar/stellar-sdk/lib/rpc';
 
 export class StellarService {
-  private horizonServer: Server;
+  private horizonServer: Horizon.Server;
   private networkPassphrase: string;
   public currentNetwork: 'testnet' | 'mainnet' = 'testnet';
 
   constructor() {
-    this.horizonServer = new Server(config.get<string>(`stellar.${this.currentNetwork}.horizonUrl`));
+    this.horizonServer = new Horizon.Server(config.get<string>(`stellar.${this.currentNetwork}.horizonUrl`));
     this.networkPassphrase = config.get<string>(`stellar.${this.currentNetwork}.networkPassphrase`);
   }
 
@@ -18,7 +17,7 @@ export class StellarService {
 
   public switchNetwork(network: 'testnet' | 'mainnet'): void {
     this.currentNetwork = network;
-    this.horizonServer = new Server(config.get<string>(`stellar.${network}.horizonUrl`));
+    this.horizonServer = new Horizon.Server(config.get<string>(`stellar.${network}.horizonUrl`));
     this.networkPassphrase = config.get<string>(`stellar.${network}.networkPassphrase`);
   }
 
@@ -40,7 +39,7 @@ export class StellarService {
 
   public async buildTransaction(
     source: string,
-    operations: Operation[],
+    operations: any[],
     signers: Keypair[]
   ): Promise<string> {
     const account = await this.getAccount(source);
@@ -48,16 +47,18 @@ export class StellarService {
     const transaction = new TransactionBuilder(account, {
       fee: '100',
       networkPassphrase: this.networkPassphrase,
-    })
-      .addOperations(operations)
-      .setTimeout(30)
-      .build();
+    });
 
-    signers.forEach(signer => transaction.sign(signer));
-    return transaction.toXDR();
+    operations.forEach(op => transaction.addOperation(op));
+
+    const builtTransaction = transaction.setTimeout(30).build();
+
+    signers.forEach(signer => builtTransaction.sign(signer));
+    return builtTransaction.toXDR();
   }
 
   public submitTransaction(transactionXdr: string): Promise<Horizon.SubmitTransactionResponse> {
-    return this.horizonServer.submitTransaction(transactionXdr);
+    const transaction = TransactionBuilder.fromXDR(transactionXdr, this.networkPassphrase);
+    return this.horizonServer.submitTransaction(transaction);
   }
 }

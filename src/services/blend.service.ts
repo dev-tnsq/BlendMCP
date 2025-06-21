@@ -277,6 +277,31 @@ export class BlendService {
     return await this._submitTx(userAddress, [supplyOp], privateKey, network);
   }
 
+  async withdraw({ userAddress, amount, asset, poolId, privateKey }: any): Promise<string> {
+    if (!userAddress || !amount || !asset || !poolId)
+      throw new Error('userAddress, amount, asset, and poolId are required');
+    const network = getNetwork();
+    const meta = await this.loadPoolMeta(poolId);
+    const pool = await this.loadPool(poolId, meta);
+
+    const withdrawOp = xdr.Operation.fromXDR(
+      (pool as any).submit({
+        from: userAddress,
+        spender: userAddress,
+        to: userAddress,
+        requests: [
+          {
+            amount: BigInt(amount * 1e7),
+            request_type: RequestType.Withdraw,
+            address: asset,
+          },
+        ],
+      }),
+      'base64'
+    );
+    return await this._submitTx(userAddress, [withdrawOp], privateKey, network);
+  }
+
   async borrow({ userAddress, amount, asset, poolId, privateKey }: any): Promise<string> {
     if (!userAddress || !amount || !asset || !poolId)
       throw new Error('userAddress, amount, asset, and poolId are required');
@@ -333,19 +358,10 @@ export class BlendService {
     const meta = await this.loadPoolMeta(poolId);
     const pool = await this.loadPool(poolId, meta);
 
-    const claimType = (RequestType as any).Claim || (RequestType as any).ClaimRewards || 'Claim';
     const op = xdr.Operation.fromXDR(
-      (pool as any).submit({
+      (pool as any).claimRewards({
         from: userAddress,
-        spender: userAddress,
         to: userAddress,
-        requests: [
-          {
-            request_type: claimType,
-            address: '',
-            amount: BigInt(0),
-          },
-        ],
       }),
       'base64'
     );

@@ -18,13 +18,26 @@ import {
   PoolV2Event,
   TokenMetadata,
   Version,
+  
   poolEventV1FromEventResponse,
   poolEventV2FromEventResponse,
   RequestType,
+  PoolFactoryContractV2,
+  DeployV2Args,
+  parseError,
+  parseResult,
 } from '@blend-capital/blend-sdk';
 import stellarSdk from '@stellar/stellar-sdk';
-const { Server, Account, Asset, BASE_FEE, Horizon, Networks, rpc, TransactionBuilder, xdr, Keypair } =
-  stellarSdk;
+import {
+  xdr,
+  Keypair,
+  TransactionBuilder,
+  Networks,
+  Transaction,
+  Address,
+  Account,
+  Operation,
+} from '@stellar/stellar-sdk';
 
 const AGENT_SECRET = process.env.AGENT_SECRET || '';
 const HORIZON_URL = 'https://horizon-testnet.stellar.org';
@@ -115,7 +128,7 @@ export class BlendService {
     if (!poolId || !version || typeof startLedger !== 'number')
       throw new Error('poolId, version, and startLedger are required');
     const network = getNetwork();
-    const stellarRpc = new rpc.Server(network.rpc, network.opts);
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
     const topics =
       version === 'V2'
         ? [
@@ -218,7 +231,7 @@ export class BlendService {
     const network = getNetwork();
     try {
       // Try to fetch from Horizon for native and issued assets
-      const horizon = new Horizon.Server(network.horizonUrl, network.opts);
+      const horizon = new stellarSdk.Horizon.Server(network.horizonUrl, network.opts);
       const account = await horizon.loadAccount(userAddress);
       if (tokenId === 'native' || tokenId === 'XLM') {
         const nativeBalance = account.balances.find((b: any) => b.asset_type === 'native');
@@ -358,16 +371,173 @@ export class BlendService {
     return await this._submitTx(userAddress, [op], privateKey, network);
   }
 
+  async createPool({
+    admin,
+    name,
+    oracleId,
+    backstopRate,
+    maxPositions,
+    minCollateral,
+    privateKey
+  }: {
+    admin: string;
+    name: string;
+    oracleId: string;
+    backstopRate: number;
+    maxPositions: number;
+    minCollateral: bigint;
+    privateKey?: string;
+  }): Promise<string> {
+    if (!admin || !name || !oracleId || backstopRate === undefined || maxPositions === undefined || minCollateral === undefined) {
+      throw new Error('admin, name, oracleId, backstopRate, maxPositions, and minCollateral are required');
+    }
+  
+    // Validate input parameters
+    if (backstopRate < 0 || backstopRate > 1000000) {
+      throw new Error('backstopRate must be between 0 and 1000000 (representing 0% to 100% with 4 decimal precision)');
+    }
+  
+    if (maxPositions < 1 || maxPositions > 255) {
+      throw new Error('maxPositions must be between 1 and 255');
+    }
+  
+    // Use environment variable or default factory ID for testnet
+    const factoryId = process.env.POOL_FACTORY_ID || 'CDIE73IJJKOWXWCPU5GWQ745FUKWCSH3YKZRF5IQW7GE3G7YAZ773MYK';
+  
+    if (!factoryId) {
+      throw new Error('POOL_FACTORY_ID environment variable is not set.');
+    }
+  
+    try {
+      const poolFactory = new PoolFactoryContractV2(factoryId);
+  
+      // Generate a random salt for pool creation
+      const salt = Keypair.random().rawPublicKey();
+  
+      const deployPoolArgs: DeployV2Args = {
+        admin: new Address(admin),
+        name: name,
+        salt: salt,
+        oracle: new Address(oracleId),
+        backstop_take_rate: backstopRate,
+        max_positions: maxPositions,
+        min_collateral: minCollateral,
+      };
+  
+      const operation = poolFactory.deployPool(deployPoolArgs);
+  
+      // Use provided private key or fall back to AGENT_SECRET
+      const signingKey = privateKey || process.env.AGENT_SECRET;
+      if (!signingKey) {
+        throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+      }
+  
+      const signerKeypair = Keypair.fromSecret(signingKey);
+      const network = getNetwork();
+      const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+  
+      // Load the signer's account
+      const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+  
+      // Prepare transaction parameters
+      const txParams = {
+        account,
+        signerFunction: async (txXdr: string) => {
+          const tx = new Transaction(txXdr, network.passphrase);
+          tx.sign(signerKeypair);
+          return tx.toXDR();
+        },
+        txBuilderOptions: {
+          fee: '1000000', // 1 XLM fee for pool creation
+          networkPassphrase: network.passphrase,
+          timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+        },
+      };
+  
+      // Deploy the pool using the internal helper method
+      const poolAddress = await this._invokeSorobanOperation(
+        operation,
+        PoolFactoryContractV2.parsers.deployPool,
+        txParams
+      );
+  
+      if (!poolAddress) {
+        throw new Error('Failed to deploy pool: No pool address returned');
+      }
+  
+      console.log(`Pool successfully created at address: ${poolAddress}`);
+      return poolAddress;
+  
+    } catch (error: any) {
+      console.error('Error creating pool:', error);
+      
+      // Provide more specific error messages based on common issues
+      if (error.message?.includes('account not found')) {
+        throw new Error(`Account not found: ${admin}. Make sure the admin account exists and is funded.`);
+      }
+      
+      if (error.message?.includes('oracle')) {
+        throw new Error(`Invalid oracle address: ${oracleId}. Make sure the oracle contract exists.`);
+      }
+      
+      if (error.message?.includes('insufficient funds')) {
+        throw new Error('Insufficient funds to create pool. The admin account needs enough XLM to cover transaction fees.');
+      }
+  
+      // Re-throw the original error if it's not a recognized issue
+      throw error;
+    }
+  }
+
+  async addReserve({ admin, poolId, assetId, config, privateKey }: any): Promise<string> {
+    if (!admin || !poolId || !assetId || !config) {
+      throw new Error('admin, poolId, assetId, and config are required');
+    }
+    const network = getNetwork();
+    const contract = new stellarSdk.Contract(poolId);
+
+    const reserveConfigScVal = xdr.ScVal.scvMap([
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('index'), val: xdr.ScVal.scvU32(config.index) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('decimals'), val: xdr.ScVal.scvU32(config.decimals) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('c_factor'), val: xdr.ScVal.scvU32(config.c_factor) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('l_factor'), val: xdr.ScVal.scvU32(config.l_factor) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('util'), val: xdr.ScVal.scvU32(config.util) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('max_util'), val: xdr.ScVal.scvU32(config.max_util) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_base'), val: xdr.ScVal.scvU32(config.r_base) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_one'), val: xdr.ScVal.scvU32(config.r_one) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_two'), val: xdr.ScVal.scvU32(config.r_two) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_three'), val: xdr.ScVal.scvU32(config.r_three) }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('reactivity'), val: xdr.ScVal.scvU32(config.reactivity) }),
+      new xdr.ScMapEntry({
+        key: xdr.ScVal.scvSymbol('collateral_cap'),
+        val: stellarSdk.nativeToScVal(BigInt(config.collateral_cap), { type: 'i128' }),
+      }),
+      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('enabled'), val: xdr.ScVal.scvBool(config.enabled) }),
+    ]);
+
+    const queueOp = contract.call(
+      'queue_set_reserve',
+      new stellarSdk.Address(assetId).toScVal(),
+      reserveConfigScVal
+    );
+
+    // Submitting queue and set in the same transaction will fail due to time-lock.
+    // The admin will need to call set_reserve in a separate transaction after the time-lock passes.
+    // Also, the source of the transaction must be the admin of the pool and signed by their key.
+    // If privateKey is not provided, AGENT_SECRET is used, so the agent must be the admin.
+    return await this._submitTx(admin, [queueOp], privateKey, network);
+  }
+
   // Simulate Operation
   async simulateOperation(operationXdr: string, userAddress: string) {
     if (!operationXdr || !userAddress) throw new Error('operationXdr and userAddress are required');
     const network = getNetwork();
     const operation = xdr.Operation.fromXDR(operationXdr, 'base64');
-    const stellarRpc = new rpc.Server(network.rpc, network.opts);
-    const account = new Account(userAddress, '123');
-    const txBuilder = new TransactionBuilder(account, {
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = new stellarSdk.Account(userAddress, '123');
+    const txBuilder = new stellarSdk.TransactionBuilder(account, {
       networkPassphrase: network.passphrase,
-      fee: BASE_FEE,
+      fee: stellarSdk.BASE_FEE,
       timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 5 * 60 * 1000 },
     }).addOperation(operation);
     const transaction = txBuilder.build();
@@ -377,7 +547,7 @@ export class BlendService {
   // Fee Stats
   async getFeeStats() {
     const network = getNetwork();
-    const stellarRpc = new rpc.Server(network.rpc, network.opts);
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
     const feeStats = await stellarRpc.getFeeStats();
     return {
       low: Math.max(parseInt(feeStats.sorobanInclusionFee.p30), 500).toString(),
@@ -391,16 +561,305 @@ export class BlendService {
     if (!source || !operations || !network)
       throw new Error('source, operations, and network are required');
     const keypair = getKeypair(privateKey);
-    const stellarServer = new Server(network.horizonUrl);
-    const account = await stellarServer.loadAccount(source);
-    const txBuilder = new TransactionBuilder(account, {
-      fee: '100',
-      networkPassphrase: network.passphrase,
+
+    if (source !== keypair.publicKey()) {
+      throw new Error(
+        `Transaction source address (${source}) does not match signing keypair public key (${keypair.publicKey()}). The privateKey for the source account must be provided.`
+      );
+    }
+
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const stellarServer = new stellarSdk.Horizon.Server(network.horizonUrl, {
+      ...network.opts,
+      allowHttp: true,
     });
-    operations.forEach((op) => txBuilder.addOperation(op));
-    const tx = txBuilder.setTimeout(30).build();
-    tx.sign(keypair);
-    const res = await stellarServer.submitTransaction(tx);
-    return res.hash;
+
+    try {
+      const sourceAccount = await stellarServer.loadAccount(source);
+
+      // --- Simulation Phase ---
+      const txBuilderForSim = new stellarSdk.TransactionBuilder(sourceAccount, {
+        fee: stellarSdk.BASE_FEE,
+        networkPassphrase: network.passphrase,
+        timebounds: await stellarServer.fetchTimebounds(100),
+      });
+      operations.forEach((op) => txBuilderForSim.addOperation(op));
+      const txToSimulate = txBuilderForSim.build();
+
+      const simulation = await stellarRpc.simulateTransaction(txToSimulate);
+
+      if (stellarSdk.rpc.isSimulationError(simulation)) {
+        throw new Error(`Transaction simulation failed: ${simulation.error}`);
+      } else if (!simulation.result) {
+        throw new Error('Invalid simulation response: no result found.');
+      }
+
+      // --- Submission Phase ---
+      const txBuilderForSubmit = new stellarSdk.TransactionBuilder(sourceAccount, {
+        fee: simulation.minResourceFee,
+        networkPassphrase: network.passphrase,
+      });
+
+      operations.forEach((op) => txBuilderForSubmit.addOperation(op));
+
+      const txToSubmit = txBuilderForSubmit
+        .setSorobanData(simulation.transactionData)
+        .setTimeout(30)
+        .build();
+
+      txToSubmit.sign(keypair);
+
+      const res = await stellarServer.submitTransaction(txToSubmit);
+      return res.hash;
+    } catch (e: any) {
+      if (e?.response?.data) {
+        console.error('Error submitting transaction:', JSON.stringify(e.response.data, null, 2));
+        const { title, detail, extras } = e.response.data;
+        let errorMessage = `Transaction submission failed: ${title}`;
+        if (detail) {
+          errorMessage += `. ${detail}`;
+        }
+        if (extras?.result_codes) {
+          const { transaction, operations } = extras.result_codes;
+          errorMessage += ` (Transaction: ${transaction}, Operations: ${operations?.join(', ')})`;
+        }
+        throw new Error(errorMessage);
+      }
+      console.error('Raw error submitting transaction:', e);
+      throw e;
+    }
+  }
+
+  private async _sendTransaction<T>(
+    transaction: Transaction,
+    parser: (result: string) => T
+  ): Promise<T | undefined> {
+    const network = getNetwork();
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    
+    try {
+      // Submit transaction
+      let sendResponse = await stellarRpc.sendTransaction(transaction);
+      const startTime = Date.now();
+      const timeout = 30000; // 30 second timeout
+      
+      // Handle TRY_AGAIN_LATER responses
+      while (sendResponse.status === 'TRY_AGAIN_LATER' && (Date.now() - startTime) < timeout) {
+        console.log('Transaction submission returned TRY_AGAIN_LATER, retrying...');
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+        sendResponse = await stellarRpc.sendTransaction(transaction);
+      }
+      
+      // Check if submission timed out
+      if (sendResponse.status === 'TRY_AGAIN_LATER') {
+        throw new Error('Transaction submission timed out after multiple retries');
+      }
+      
+      // Handle submission errors
+      if (sendResponse.status !== 'PENDING') {
+        console.error('Transaction failed to submit:', sendResponse.hash);
+        console.error('Error details:', JSON.stringify(sendResponse, null, 2));
+        console.error('Transaction XDR:', transaction.toXDR());
+        
+        // Log diagnostic events
+        if (sendResponse.diagnosticEvents) {
+          console.error('Diagnostic events:');
+          sendResponse.diagnosticEvents.forEach((event:any, index:any) => {
+            console.error(`Event ${index}:`, event.toXDR('base64'));
+          });
+        }
+        
+        const error = parseError(sendResponse);
+        throw error;
+      }
+      
+      console.log('Transaction submitted successfully, hash:', sendResponse.hash);
+      
+      // Wait for transaction to be included in ledger
+      let getResponse = await stellarRpc.getTransaction(sendResponse.hash);
+      const pollStartTime = Date.now();
+      const pollTimeout = 60000; // 60 second timeout for transaction confirmation
+      
+      while (getResponse.status === 'NOT_FOUND' && (Date.now() - pollStartTime) < pollTimeout) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        getResponse = await stellarRpc.getTransaction(sendResponse.hash);
+      }
+      
+      // Check if polling timed out
+      if (getResponse.status === 'NOT_FOUND') {
+        throw new Error(`Transaction confirmation timed out. Hash: ${sendResponse.hash}`);
+      }
+      
+      // Handle transaction execution errors
+      if (getResponse.status !== 'SUCCESS') {
+        console.error('Transaction execution failed:', getResponse.hash);
+        console.error('Transaction details:', JSON.stringify(getResponse, null, 2));
+        
+        const error = parseError(getResponse);
+        throw error;
+      }
+      
+      console.log('Transaction executed successfully!');
+      
+      // Parse and return result
+      if (parser && getResponse.returnValue) {
+        const result = parseResult(getResponse, parser);
+        return result;
+      }
+      
+      return undefined;
+      
+    } catch (error) {
+      console.error('Error in _sendTransaction:', error);
+      
+      // Enhance error messages for better debugging
+      if (error instanceof Error) {
+        if (error.message.includes('tx_bad_seq')) {
+          throw new Error('Transaction sequence number error. The account sequence may have changed.');
+        }
+        
+        if (error.message.includes('tx_insufficient_fee')) {
+          throw new Error('Transaction fee too low. Try increasing the fee.');
+        }
+        
+        if (error.message.includes('tx_no_source_account')) {
+          throw new Error('Source account not found or invalid.');
+        }
+      }
+      
+      throw error;
+    }
+  }
+
+  private async _invokeSorobanOperation<T>(
+    operation: string,
+    parser: (result: string) => T,
+    txParams: {
+      account: Account;
+      signerFunction: (txXdr: string) => Promise<string>;
+      txBuilderOptions: TransactionBuilder.TransactionBuilderOptions;
+    }
+  ): Promise<T | undefined> {
+    const network = getNetwork();
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    
+    try {
+      // Get fresh account data to ensure correct sequence number
+      const freshAccount = await stellarRpc.getAccount(txParams.account.accountId());
+      
+      // Build initial transaction
+      const txBuilder = new stellarSdk.TransactionBuilder(freshAccount, txParams.txBuilderOptions)
+        .addOperation(xdr.Operation.fromXDR(operation, 'base64'));
+  
+      let transaction = txBuilder.build();
+      let simulation = await stellarRpc.simulateTransaction(transaction);
+      
+      // Handle restore if needed
+      if (stellarSdk.rpc.Api.isSimulationRestore(simulation)) {
+        console.log('Contract state needs restoration...');
+        
+        if (!simulation.restorePreamble?.transactionData) {
+          throw new Error('Missing restore preamble transaction data');
+        }
+        
+        // Calculate appropriate fee for restore operation
+        const baseFee = Number(simulation.restorePreamble.minResourceFee);
+        const restoreFee = Math.max(baseFee + 50000, 100000); // Ensure minimum fee
+        
+        // Get fresh account for restore transaction
+        const restoreAccount = await stellarRpc.getAccount(txParams.account.accountId());
+        
+        // Build restore transaction with proper timebounds
+        const restoreTx = new stellarSdk.TransactionBuilder(restoreAccount, { 
+          fee: restoreFee.toString(),
+          networkPassphrase: network.passphrase,
+          timebounds: await stellarRpc.fetchTimebounds(100) // Add proper timebounds
+        })
+          .setSorobanData(simulation.restorePreamble.transactionData.build())
+          .addOperation(stellarSdk.Operation.restoreFootprint({}))
+          .build();
+        
+        // Sign and submit restore transaction
+        const restoreSignedTx = new stellarSdk.Transaction(
+          await txParams.signerFunction(restoreTx.toXDR()),
+          network.passphrase
+        );
+        
+        console.log('Restore Transaction Hash:', restoreSignedTx.hash().toString('hex'));
+        await this._sendTransaction(restoreSignedTx, () => undefined);
+        console.log('Contract state restored successfully');
+        
+        // Wait a moment for the restore to be processed
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Get fresh account again after restore (don't manually increment sequence)
+        const postRestoreAccount = await stellarRpc.getAccount(txParams.account.accountId());
+        
+        // Rebuild main transaction with fresh account
+        transaction = new stellarSdk.TransactionBuilder(postRestoreAccount, txParams.txBuilderOptions)
+          .addOperation(xdr.Operation.fromXDR(operation, 'base64'))
+          .build();
+        
+        // Simulate again after restore
+        simulation = await stellarRpc.simulateTransaction(transaction);
+      }
+  
+      // Check for simulation errors
+      if (stellarSdk.rpc.Api.isSimulationError(simulation)) {
+        console.error('Transaction simulation failed');
+        console.error('Transaction XDR:', transaction.toXDR());
+        console.error('Simulation error:', simulation.error);
+        
+        // Log diagnostic events if available
+        if (simulation.events) {
+          console.error('Diagnostic events:');
+          simulation.events.forEach((event:any, index:any) => {
+            console.error(`Event ${index}:`, event.toXDR('base64'));
+          });
+        }
+        
+        const error = parseError(simulation);
+        throw error;
+      }
+  
+      // Validate simulation result
+      if (!simulation.result) {
+        throw new Error('Simulation succeeded but returned no result');
+      }
+  
+      // Assemble transaction with simulation data
+      const assembledTx = stellarSdk.rpc.assembleTransaction(transaction, simulation).build();
+      console.log('Main Transaction Hash:', assembledTx.hash().toString('hex'));
+      
+      // Sign the assembled transaction
+      const signedTx = new stellarSdk.Transaction(
+        await txParams.signerFunction(assembledTx.toXDR()),
+        network.passphrase
+      );
+  
+      // Submit and wait for result
+      const response = await this._sendTransaction(signedTx, parser);
+      return response;
+      
+    } catch (error) {
+      console.error('Error in _invokeSorobanOperation:', error);
+      
+      // Provide more context for common errors
+      if (error instanceof Error) {
+        if (error.message.includes('account not found')) {
+          throw new Error(`Account not found: ${txParams.account.accountId()}. Ensure the account exists and is funded.`);
+        }
+        
+        if (error.message.includes('insufficient funds')) {
+          throw new Error(`Insufficient funds for operation. Account needs more XLM to cover transaction fees.`);
+        }
+        
+        if (error.message.includes('contract not found')) {
+          throw new Error(`Contract not found or not properly deployed. Check the contract address.`);
+        }
+      }
+      
+      throw error;
+    }
   }
 } 

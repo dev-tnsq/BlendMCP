@@ -233,6 +233,74 @@ server.registerTool('claimRewards', {
     return { content: [{ type: 'text', text: `Claim transaction submitted successfully. Hash: ${txHash}` }] };
 });
 
+const createPoolInputSchema = {
+  admin: z.string().describe('The public key of the account that will be the admin of the new pool.'),
+  name: z.string().describe('The name of the new pool (e.g., "My Custom Pool").'),
+  oracleId: z.string().describe('The contract ID of the oracle to be used for asset pricing.'),
+  backstopRate: z.number().describe('The backstop take rate for the pool, in BPS. (e.g., 1000 for 10%)'),
+  maxPositions: z.number().describe('The maximum number of positions a user can have in the pool.'),
+  minCollateral: z.number().describe('The minimum collateral amount for a position in the pool.'),
+};
+
+const createPoolObjectSchema = z.object(createPoolInputSchema);
+type CreatePoolParams = z.infer<typeof createPoolObjectSchema>;
+
+server.registerTool(
+  'createPool',
+  {
+    title: 'Create Lending Pool',
+    description: 'Deploys a new, permissionless lending pool on the Blend protocol.',
+    inputSchema: createPoolInputSchema,
+  },
+  async (params: CreatePoolParams) => {
+    const txHash = await blendService.createPool({
+      ...params,
+      minCollateral: BigInt(params.minCollateral),
+    });
+    return { content: [{ type: 'text', text: `Pool creation transaction submitted successfully. Hash: ${txHash}` }] };
+  }
+);
+
+const reserveConfigSchema = z.object({
+  index: z.number().describe('The index of the reserve in the list (usually 0 for the first).'),
+  decimals: z.number().describe('The decimals of the underlying asset contract.'),
+  c_factor: z.number().describe('The collateral factor for the reserve, in BPS (e.g., 7500 for 75%).'),
+  l_factor: z.number().describe('The liability factor for the reserve, in BPS (e.g., 8000 for 80%).'),
+  util: z.number().describe('The target utilization rate, in BPS (e.g., 6500 for 65%).'),
+  max_util: z.number().describe('The maximum allowed utilization rate, in BPS (e.g., 9500 for 95%).'),
+  r_base: z.number().describe('The base interest rate, in BPS.'),
+  r_one: z.number().describe('The interest rate slope below target utilization, in BPS.'),
+  r_two: z.number().describe('The interest rate slope above target utilization, in BPS.'),
+  r_three: z.number().describe('The interest rate slope above max utilization, in BPS.'),
+  reactivity: z.number().describe('The interest rate reactivity constant.'),
+  collateral_cap: z.number().describe('The total amount of underlying tokens that can be used as collateral.'),
+  enabled: z.boolean().describe('Whether the reserve is enabled.'),
+});
+
+const addReserveInputSchema = {
+  admin: z.string().describe('The public key of the pool admin.'),
+  poolId: z.string().describe('The contract ID of the pool to add the reserve to.'),
+  assetId: z.string().describe('The contract ID of the asset to add as a reserve.'),
+  config: reserveConfigSchema,
+  privateKey: z.string().describe('The secret key of the admin account to sign the transaction.'),
+};
+
+const addReserveObjectSchema = z.object(addReserveInputSchema);
+type AddReserveParams = z.infer<typeof addReserveObjectSchema>;
+
+server.registerTool(
+  'addReserve',
+  {
+    title: 'Add Reserve to Pool',
+    description: 'Adds a new asset reserve to a lending pool.',
+    inputSchema: addReserveInputSchema,
+  },
+  async (params: AddReserveParams) => {
+    const txHash = await blendService.addReserve(params);
+    return { content: [{ type: 'text', text: `Add reserve transaction submitted successfully. Hash: ${txHash}` }] };
+  }
+);
+
 // 3. Connect to a transport and run the server
 async function run() {
   const transport = new StdioServerTransport();

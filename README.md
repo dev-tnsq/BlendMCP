@@ -100,7 +100,7 @@ flowchart TD
        "Blend Protocol MCP": {
          "command": "npx",
          "args": [
-           "stellar-blend-mcp"
+           "blend-mcp-stellar"
          ],
          "env": {
            "AGENT_SECRET": "<YOUR_STELLAR_SECRET_KEY>",

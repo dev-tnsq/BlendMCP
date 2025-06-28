@@ -125,6 +125,10 @@ flowchart TD
    - `AGENT_SECRET` (your Stellar secret key for signing transactions)
    - (Optional) `POOL_FACTORY_ID`, `BACKSTOP_ID`, etc. for advanced features
 3. **Connect your AI assistant or app:**
+   - dont forget to do and then see connect your ai assistant 
+   ```bash
+   npm run build
+   ```
    - Use the MCP protocol (stdio or HTTP) to send commands and receive results.
    - See `src/server.ts` for available tools and schemas.
 

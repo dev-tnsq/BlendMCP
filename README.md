@@ -105,7 +105,6 @@ flowchart TD
          "env": {
            "AGENT_SECRET": "<YOUR_STELLAR_SECRET_KEY>",
            "RPC_URL": "https://soroban-testnet.stellar.org",
-           "BACKSTOP_ID": "<OPTIONAL_BACKSTOP_ID>",
            "BACKSTOP_ID_V2": "<OPTIONAL_BACKSTOP_ID_V2>",
            "POOL_FACTORY_ID": "<OPTIONAL_POOL_FACTORY_ID>"
          }

@@ -1,5 +1,5 @@
 {
-  "name": "stellar-blend-mcp",
+  "name": "blend-mcp-stellar",
   "version": "1.0.0",
   "type": "module",
   "main": "dist/server.js",
@@ -36,6 +36,6 @@
     "typescript": "^5.2.2"
   },
   "bin": {
-    "stellar-blend-mcp": "./dist/server.js"
+    "blend-mcp-stellar": "./dist/server.js"
   }
 }

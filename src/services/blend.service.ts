@@ -26,6 +26,7 @@ import {
   DeployV2Args,
   parseError,
   parseResult,
+  PoolContractV2,
 } from '@blend-capital/blend-sdk';
 import stellarSdk from '@stellar/stellar-sdk';
 import {
@@ -259,116 +260,267 @@ export class BlendService {
     if (!userAddress || !amount || !asset || !poolId)
       throw new Error('userAddress, amount, asset, and poolId are required');
     const network = getNetwork();
-    const meta = await this.loadPoolMeta(poolId);
-    const pool = await this.loadPool(poolId, meta);
+    const pool = new PoolContractV2(poolId);
 
-    const supplyOp = xdr.Operation.fromXDR(
-      (pool as any).submit({
-        from: userAddress,
-        spender: userAddress,
-        to: userAddress,
-        requests: [
-          {
-            amount: BigInt(amount * 1e7),
-            request_type: RequestType.SupplyCollateral,
-            address: asset,
-          },
-        ],
-      }),
-      'base64'
+    // Construct the supply collateral operation
+    const supplyOp = pool.submit({
+      from: userAddress,
+      spender: userAddress,
+      to: userAddress,
+      requests: [
+        {
+          amount: BigInt(amount * 1e7),
+          request_type: RequestType.SupplyCollateral,
+          address: asset,
+        },
+      ],
+    });
+
+    // Prepare signing key
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+
+    // Load the signer's account
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000', // or appropriate fee
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      supplyOp,
+      () => '', // No parser needed, just return the hash
+      txParams
     );
-    return await this._submitTx(userAddress, [supplyOp], privateKey, network);
+    return txHash as string;
   }
 
   async withdraw({ userAddress, amount, asset, poolId, privateKey }: any): Promise<string> {
     if (!userAddress || !amount || !asset || !poolId)
       throw new Error('userAddress, amount, asset, and poolId are required');
     const network = getNetwork();
-    const meta = await this.loadPoolMeta(poolId);
-    const pool = await this.loadPool(poolId, meta);
+    const pool = new PoolContractV2(poolId);
 
-    const withdrawOp = xdr.Operation.fromXDR(
-      (pool as any).submit({
-        from: userAddress,
-        spender: userAddress,
-        to: userAddress,
-        requests: [
-          {
-            amount: BigInt(amount * 1e7),
-            request_type: RequestType.Withdraw,
-            address: asset,
-          },
-        ],
-      }),
-      'base64'
+    // Construct the withdraw operation
+    const withdrawOp = pool.submit({
+      from: userAddress,
+      spender: userAddress,
+      to: userAddress,
+      requests: [
+        {
+          amount: BigInt(amount * 1e7),
+          request_type: RequestType.Withdraw,
+          address: asset,
+        },
+      ],
+    });
+
+    // Prepare signing key
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+
+    // Load the signer's account
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      withdrawOp,
+      () => '', // No parser needed, just return the hash
+      txParams
     );
-    return await this._submitTx(userAddress, [withdrawOp], privateKey, network);
+    return txHash as string;
   }
 
   async borrow({ userAddress, amount, asset, poolId, privateKey }: any): Promise<string> {
     if (!userAddress || !amount || !asset || !poolId)
       throw new Error('userAddress, amount, asset, and poolId are required');
     const network = getNetwork();
-    const meta = await this.loadPoolMeta(poolId);
-    const pool = await this.loadPool(poolId, meta);
+    const pool = new PoolContractV2(poolId);
 
-    const borrowOp = xdr.Operation.fromXDR(
-      (pool as any).submit({
-        from: userAddress,
-        spender: userAddress,
-        to: userAddress,
-        requests: [
-          {
-            amount: BigInt(amount * 1e7),
-            request_type: RequestType.Borrow,
-            address: asset,
-          },
-        ],
-      }),
-      'base64'
+    // Construct the borrow operation
+    const borrowOp = pool.submit({
+      from: userAddress,
+      spender: userAddress,
+      to: userAddress,
+      requests: [
+        {
+          amount: BigInt(amount * 1e7),
+          request_type: RequestType.Borrow,
+          address: asset,
+        },
+      ],
+    });
+
+    // Prepare signing key
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+
+    // Load the signer's account
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      borrowOp,
+      () => '', // No parser needed, just return the hash
+      txParams
     );
-    return await this._submitTx(userAddress, [borrowOp], privateKey, network);
+    return txHash as string;
   }
 
   async repay({ userAddress, amount, asset, poolId, privateKey }: any): Promise<string> {
     if (!userAddress || !amount || !asset || !poolId)
       throw new Error('userAddress, amount, asset, and poolId are required');
     const network = getNetwork();
-    const meta = await this.loadPoolMeta(poolId);
-    const pool = await this.loadPool(poolId, meta);
+    const pool = new PoolContractV2(poolId);
 
-    const repayOp = xdr.Operation.fromXDR(
-      (pool as any).submit({
-        from: userAddress,
-        spender: userAddress,
-        to: userAddress,
-        requests: [
-          {
-            amount: BigInt(amount * 1e7),
-            request_type: RequestType.Repay,
-            address: asset,
-          },
-        ],
-      }),
-      'base64'
+    // Construct the repay operation
+    const repayOp = pool.submit({
+      from: userAddress,
+      spender: userAddress,
+      to: userAddress,
+      requests: [
+        {
+          amount: BigInt(amount * 1e7),
+          request_type: RequestType.Repay,
+          address: asset,
+        },
+      ],
+    });
+
+    // Prepare signing key
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+
+    // Load the signer's account
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      repayOp,
+      () => '', // No parser needed, just return the hash
+      txParams
     );
-    return await this._submitTx(userAddress, [repayOp], privateKey, network);
+    return txHash as string;
   }
 
-  async claim({ userAddress, poolId, privateKey }: any): Promise<string> {
-    if (!userAddress || !poolId) throw new Error('userAddress and poolId are required');
+  async claim({ userAddress, poolId, reserveTokenIds, privateKey }: any): Promise<string> {
+    if (!userAddress || !poolId || !reserveTokenIds) throw new Error('userAddress, poolId, and reserveTokenIds are required');
     const network = getNetwork();
-    const meta = await this.loadPoolMeta(poolId);
-    const pool = await this.loadPool(poolId, meta);
+    const pool = new PoolContractV2(poolId);
 
-    const op = xdr.Operation.fromXDR(
-      (pool as any).claimRewards({
-        from: userAddress,
-        to: userAddress,
-      }),
-      'base64'
+    // Construct the claim rewards operation using the correct method and args
+    const claimOp = pool.claim({
+      from: userAddress,
+      reserve_token_ids: reserveTokenIds,
+      to: userAddress,
+    });
+
+    // Prepare signing key
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+
+    // Load the signer's account
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      claimOp,
+      () => '', // No parser needed, just return the hash
+      txParams
     );
-    return await this._submitTx(userAddress, [op], privateKey, network);
+    return txHash as string;
   }
 
   async createPool({
@@ -489,43 +641,74 @@ export class BlendService {
     }
   }
 
-  async addReserve({ admin, poolId, assetId, config, privateKey }: any): Promise<string> {
-    if (!admin || !poolId || !assetId || !config) {
-      throw new Error('admin, poolId, assetId, and config are required');
+  async addReserve({ admin, poolId, assetId, metadata, privateKey }: any): Promise<string> {
+    if (!admin || !poolId || !assetId || !metadata) {
+      throw new Error('admin, poolId, assetId, and metadata are required');
     }
     const network = getNetwork();
-    const contract = new stellarSdk.Contract(poolId);
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
 
-    const reserveConfigScVal = xdr.ScVal.scvMap([
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('index'), val: xdr.ScVal.scvU32(config.index) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('decimals'), val: xdr.ScVal.scvU32(config.decimals) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('c_factor'), val: xdr.ScVal.scvU32(config.c_factor) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('l_factor'), val: xdr.ScVal.scvU32(config.l_factor) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('util'), val: xdr.ScVal.scvU32(config.util) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('max_util'), val: xdr.ScVal.scvU32(config.max_util) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_base'), val: xdr.ScVal.scvU32(config.r_base) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_one'), val: xdr.ScVal.scvU32(config.r_one) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_two'), val: xdr.ScVal.scvU32(config.r_two) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('r_three'), val: xdr.ScVal.scvU32(config.r_three) }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('reactivity'), val: xdr.ScVal.scvU32(config.reactivity) }),
-      new xdr.ScMapEntry({
-        key: xdr.ScVal.scvSymbol('collateral_cap'),
-        val: stellarSdk.nativeToScVal(BigInt(config.collateral_cap), { type: 'i128' }),
-      }),
-      new xdr.ScMapEntry({ key: xdr.ScVal.scvSymbol('enabled'), val: xdr.ScVal.scvBool(config.enabled) }),
-    ]);
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '1000000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
 
-    const queueOp = contract.call(
-      'queue_set_reserve',
-      new stellarSdk.Address(assetId).toScVal(),
-      reserveConfigScVal
+    const pool = new PoolContractV2(poolId);
+    // Explicitly construct SetReserveV2Args structure
+    const setReserveArgs = {
+      asset: assetId,
+      metadata: {
+        index: metadata.index,
+        decimals: metadata.decimals,
+        c_factor: metadata.c_factor,
+        l_factor: metadata.l_factor,
+        util: metadata.util,
+        max_util: metadata.max_util,
+        r_base: metadata.r_base,
+        r_one: metadata.r_one,
+        r_two: metadata.r_two,
+        r_three: metadata.r_three,
+        reactivity: metadata.reactivity,
+        supply_cap: BigInt(metadata.supply_cap),
+        enabled: metadata.enabled,
+      }
+    };
+
+    // Queue the reserve
+    await this._invokeSorobanOperation(
+      pool.queueSetReserve(setReserveArgs),
+      PoolContractV2.parsers.queueSetReserve,
+      txParams
     );
 
-    // Submitting queue and set in the same transaction will fail due to time-lock.
-    // The admin will need to call set_reserve in a separate transaction after the time-lock passes.
-    // Also, the source of the transaction must be the admin of the pool and signed by their key.
-    // If privateKey is not provided, AGENT_SECRET is used, so the agent must be the admin.
-    return await this._submitTx(admin, [queueOp], privateKey, network);
+    // Try to set the reserve (may fail if time-lock not reached)
+    let setResult = '';
+    try {
+      await this._invokeSorobanOperation(
+        pool.setReserve(assetId),
+        PoolContractV2.parsers.setReserve,
+        txParams
+      );
+      setResult = `Reserve for asset ${assetId} set successfully.`;
+    } catch (e) {
+      setResult = `Reserve for asset ${assetId} queued, but not set yet (likely due to time-lock).`;
+    }
+    return setResult;
   }
 
   // Simulate Operation
@@ -588,7 +771,7 @@ export class BlendService {
 
       const simulation = await stellarRpc.simulateTransaction(txToSimulate);
 
-      if (stellarSdk.rpc.isSimulationError(simulation)) {
+      if (stellarRpc.rpc.isSimulationError(simulation)) {
         throw new Error(`Transaction simulation failed: ${simulation.error}`);
       } else if (!simulation.result) {
         throw new Error('Invalid simulation response: no result found.');

@@ -219,6 +219,7 @@ server.registerTool('repay', {
 const claimRewardsSchema = {
     userAddress: z.string().describe("The Stellar public key of the user performing the action."),
     poolId: z.string().describe("The contract ID of the pool to claim rewards from."),
+    reserveTokenIds: z.array(z.union([z.string(), z.number()])).describe("List of reserve token IDs to claim rewards for."),
     privateKey: z.string().optional().describe("(Optional) The secret key of the user. If not provided, the server's AGENT_SECRET will be used."),
 };
 const claimRewardsObjectSchema = z.object(claimRewardsSchema);
@@ -261,7 +262,7 @@ server.registerTool(
   }
 );
 
-const reserveConfigSchema = z.object({
+const reserveConfigSchema = {
   index: z.number().describe('The index of the reserve in the list (usually 0 for the first).'),
   decimals: z.number().describe('The decimals of the underlying asset contract.'),
   c_factor: z.number().describe('The collateral factor for the reserve, in BPS (e.g., 7500 for 75%).'),
@@ -273,15 +274,15 @@ const reserveConfigSchema = z.object({
   r_two: z.number().describe('The interest rate slope above target utilization, in BPS.'),
   r_three: z.number().describe('The interest rate slope above max utilization, in BPS.'),
   reactivity: z.number().describe('The interest rate reactivity constant.'),
-  collateral_cap: z.number().describe('The total amount of underlying tokens that can be used as collateral.'),
+  supply_cap: z.union([z.string(), z.number()]).describe('The total amount of underlying tokens that can be used as collateral (as string or number).'),
   enabled: z.boolean().describe('Whether the reserve is enabled.'),
-});
+};
 
 const addReserveInputSchema = {
   admin: z.string().describe('The public key of the pool admin.'),
   poolId: z.string().describe('The contract ID of the pool to add the reserve to.'),
   assetId: z.string().describe('The contract ID of the asset to add as a reserve.'),
-  config: reserveConfigSchema,
+  metadata: z.object(reserveConfigSchema),
   privateKey: z.string().describe('The secret key of the admin account to sign the transaction.'),
 };
 

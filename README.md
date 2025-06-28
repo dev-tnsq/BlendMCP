@@ -195,7 +195,7 @@ flowchart TD
 ## 📬 Contact
 
 - Tanishq
-- X - https://x.com/tnsq_x
+- email:- tanishq162005@gmail.com
 
 ---
 

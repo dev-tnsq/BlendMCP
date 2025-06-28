@@ -1,7 +1,7 @@
 # Blend MCP
 
 <p align="center">
-  <img src="./blend-mcp-logo.png" alt="Blend MCP Logo" width="250"/>
+  <img src="./public/blend-mcp-logo.png" alt="Blend MCP Logo" width="250"/>
 </p>
 
 ## blend at your fingertips, just command

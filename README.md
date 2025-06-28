@@ -150,7 +150,7 @@ flowchart TD
 
 ## 🛠️ Contributing
 
-- PRs and issues welcome! This project is in active development even after the stellar blend hackathon.
+- PRs and issues welcome! This project will be in active development even after the stellar blend hackathon.
 - Want to add a new tool or integration? Open an issue or PR.
 
 ---

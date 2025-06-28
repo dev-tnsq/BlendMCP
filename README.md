@@ -1,10 +1,8 @@
-# Blend MCP
-
+<h1 align="center">Blend MCP</h1>
 <p align="center">
   <img src="./public/blend-mcp-logo.png" alt="Blend MCP Logo" width="250"/>
 </p>
-
-## blend at your fingertips, just command
+<h2 align="center">blend at your fingertips, just command</h2>
 
 **Blend MCP** is the universal AI gateway for the Blend Protocol on Stellar. It exposes all Blend DeFi actions—lending, borrowing, pool creation, risk analysis, and more—as simple, composable tools accessible by any AI assistant, bot, or app.
 
@@ -126,15 +124,9 @@ flowchart TD
 2. **Set your environment variables:**
    - `AGENT_SECRET` (your Stellar secret key for signing transactions)
    - (Optional) `POOL_FACTORY_ID`, `BACKSTOP_ID`, etc. for advanced features
-3. **Run the MCP server:**
-   ```bash
-   yarn start # or npm start
-   ```
-4. **Connect your AI assistant or app:**
+3. **Connect your AI assistant or app:**
    - Use the MCP protocol (stdio or HTTP) to send commands and receive results.
    - See `src/server.ts` for available tools and schemas.
-
----
 
 ## 🤖 How to Connect Your AI Assistant
 
@@ -147,7 +139,7 @@ flowchart TD
     - "If safe, lend 40% of my XLM to Pool Y"
     - "Buy this NFT and pay later using Blend"
 
-### Example MCP Connection Config
+### Example MCP Connection Config (soon will add npx support)
 
 ```jsonc
 {

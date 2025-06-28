@@ -302,6 +302,25 @@ server.registerTool(
   }
 );
 
+server.registerTool(
+  'buyNft',
+  {
+    title: 'Buy NFT',
+    description: 'Buys an NFT from a Soroban NFT contract using the provided funds. You must specify the NFT contract ID, token ID, and price. The contract method and arguments may need to be adjusted for your specific NFT contract.',
+    inputSchema: {
+      userAddress: z.string().describe('The Stellar address of the buyer.'),
+      nftContractId: z.string().describe('The contract ID of the NFT.'),
+      tokenId: z.union([z.string(), z.number()]).describe('The ID of the NFT to buy.'),
+      price: z.number().describe('The price to pay (in stroops or contract units).'),
+      privateKey: z.string().optional().describe('(Optional) The secret key to sign the transaction. If not provided, the server\'s AGENT_SECRET will be used.'),
+    },
+  },
+  async ({ userAddress, nftContractId, tokenId, price, privateKey }) => {
+    const txHash = await blendService.buyNft({ userAddress, nftContractId, tokenId, price, privateKey });
+    return { content: [{ type: 'text', text: `NFT purchase transaction submitted. Hash: ${txHash}` }] };
+  }
+);
+
 // 3. Connect to a transport and run the server
 async function run() {
   const transport = new StdioServerTransport();

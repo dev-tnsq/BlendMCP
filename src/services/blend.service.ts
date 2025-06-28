@@ -739,6 +739,68 @@ export class BlendService {
     };
   }
 
+  /**
+   * Buy an NFT from a Soroban NFT contract using borrowed funds.
+   * @param userAddress - The Stellar address of the buyer
+   * @param nftContractId - The contract ID of the NFT
+   * @param tokenId - The ID of the NFT to buy
+   * @param price - The price to pay (in stroops or contract units)
+   * @param privateKey - (Optional) The secret key to sign the transaction
+   * @returns Transaction hash or result
+   *
+   * NOTE: The contract method name and arguments may need to be adjusted for the specific NFT contract used.
+   */
+  async buyNft({ userAddress, nftContractId, tokenId, price, privateKey }: any): Promise<string> {
+    if (!userAddress || !nftContractId || !tokenId || !price)
+      throw new Error('userAddress, nftContractId, tokenId, and price are required');
+    const network = getNetwork();
+    const signingKey = privateKey || process.env.AGENT_SECRET;
+    if (!signingKey) {
+      throw new Error('Either privateKey parameter or AGENT_SECRET environment variable must be set.');
+    }
+    const signerKeypair = Keypair.fromSecret(signingKey);
+    const stellarRpc = new stellarSdk.rpc.Server(network.rpc, network.opts);
+    const account = await stellarRpc.getAccount(signerKeypair.publicKey());
+
+    // Build the contract invocation operation (assume 'buy' method)
+    // You may need to adjust the method name and argument order for your NFT contract
+    const contractId = nftContractId;
+    const method = 'buy';
+    const args = [
+      stellarSdk.Address.fromString(userAddress).toScVal(), // buyer
+      typeof tokenId === 'string' ? stellarSdk.xdr.ScVal.scvString(tokenId) : stellarSdk.xdr.ScVal.scvU64(tokenId),
+      stellarSdk.xdr.ScVal.scvU64(price),
+    ];
+    const op = stellarSdk.Operation.invokeContractFunction({
+      contract: contractId,
+      function: method,
+      args,
+    });
+
+    // Prepare transaction parameters
+    const txParams = {
+      account,
+      signerFunction: async (txXdr: string) => {
+        const tx = new Transaction(txXdr, network.passphrase);
+        tx.sign(signerKeypair);
+        return tx.toXDR();
+      },
+      txBuilderOptions: {
+        fee: '100000',
+        networkPassphrase: network.passphrase,
+        timebounds: { minTime: 0, maxTime: Math.floor(Date.now() / 1000) + 300 },
+      },
+    };
+
+    // Call _invokeSorobanOperation
+    const txHash = await this._invokeSorobanOperation(
+      op.toXDR('base64'),
+      () => '',
+      txParams
+    );
+    return txHash as string;
+  }
+
   // --- Internal helper for tx build/sign/submit ---
   private async _submitTx(source: string, operations: any[], privateKey?: string, network?: any) {
     if (!source || !operations || !network)

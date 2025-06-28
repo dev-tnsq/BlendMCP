@@ -11,12 +11,11 @@
 ## 🚀 Features
 
 - **Natural Language DeFi:** Lend, borrow, repay, withdraw, and more—by command.
-- **Pool Management:** Create new pools, add reserves, and manage Blend pools programmatically.
+- **Pool Management:** Create and manage Blend pools programmatically.
 - **Risk Analysis:** Fetch and analyze pool/user data for safety and investment decisions.
 - **Composable Workflows:** Chain actions together (e.g., "analyze pool, then lend if safe").
-- **AI Assistant Integration:** Works with ChatGPT, Claude, or your own custom AI/bot.
+- **AI Assistant Integration:** Works with Claude, ChatGPT, or your own custom AI/bot.
 - **Extensible:** Add new tools for NFTs, bridges, or any Soroban contract.
-- **More features coming soon!**
 
 ---
 
@@ -50,45 +49,21 @@ Each tool is accessible via natural language or programmatic calls, and can be c
 
 Blend MCP's true power is in **composability**—AI assistants or apps can chain these tools to create advanced DeFi workflows:
 
-### 1. **Risk Analysis**
-- **Flow:**
-  1. Call `loadPoolData` to fetch pool and reserve data.
-  2. Call `loadTokenMetadata` for each reserve asset.
-  3. (Optional) Call `getPoolEvents` for recent activity.
-  4. AI assistant interprets the data and provides a risk summary.
-- **Example:**
-  > "Analyze Pool X for risk."
-
-### 2. **Buy Now, Pay Later (BNPL) for NFTs**
-- **Flow:**
-  1. Check NFT price (via external API or contract).
-  2. Call `borrow` to get the required funds from a Blend pool.
-  3. Call `buyNft` to purchase the NFT.
-  4. (Optional) Call `repay` when ready.
-- **Example:**
-  > "Buy this NFT and let me pay later using Blend."
-
-### 3. **Automated Lending Based on Safety**
-- **Flow:**
-  1. Call `loadPoolData` and `loadTokenMetadata`.
-  2. AI assistant checks if the pool is safe.
-  3. If safe, call `lend` to supply a percentage of wallet balance.
-- **Example:**
-  > "If Pool Y is safe, lend 40% of my XLM."
-
-### 4. **Pool Creation & Management**
-- **Flow:**
-  1. Call `createPool` to deploy a new pool.
-  2. Call `addReserve` to add assets.
-  3. (Optional) Add backstop, set parameters, or update pool programmatically.
-- **Example:**
-  > "Create a new pool, add a USDC reserve, and set the backstop rate."
-
-### 5. **Custom DeFi Strategies**
-- **Flow:**
-  - Any combination of the above tools, orchestrated by an AI or app.
-- **Example:**
-  > "Borrow from Pool Z, buy an NFT, and set up a repayment plan."
+- **Risk Analysis:**
+  1. `loadPoolData` → `loadTokenMetadata` → (optional) `getPoolEvents` → AI summarizes risk.
+  2. "Analyze Pool X for risk."
+- **Buy Now, Pay Later (BNPL) for NFTs:**
+  1. `borrow` → `buyNft` → (optional) `repay` later.
+  2. "Buy this NFT and let me pay later using Blend."
+- **Automated Lending:**
+  1. `loadPoolData` → AI checks safety → `lend` if safe.
+  2. "If Pool Y is safe, lend 40% of my XLM."
+- **Pool Creation:**
+  1. `createPool` → `addReserve` → (optional) set parameters.
+  2. "Create a new pool, add a USDC reserve."
+- **Custom DeFi Strategies:**
+  1. Any combination of the above tools, orchestrated by an AI or app.
+  2. "Borrow from Pool Z, buy an NFT, and set up a repayment plan."
 
 ---
 
@@ -115,6 +90,36 @@ flowchart TD
 
 ## ⚡ Quick Start
 
+### A. Direct Usage (No Clone/Build Needed!)
+
+1. **No install required!** Use the published npm package with `npx`:
+
+   ```jsonc
+   {
+     "mcpServers": {
+       "Blend Protocol MCP": {
+         "command": "npx",
+         "args": [
+           "stellar-blend-mcp"
+         ],
+         "env": {
+           "AGENT_SECRET": "<YOUR_STELLAR_SECRET_KEY>",
+           "RPC_URL": "https://soroban-testnet.stellar.org",
+           "BACKSTOP_ID": "<OPTIONAL_BACKSTOP_ID>",
+           "BACKSTOP_ID_V2": "<OPTIONAL_BACKSTOP_ID_V2>",
+           "POOL_FACTORY_ID": "<OPTIONAL_POOL_FACTORY_ID>"
+         }
+       }
+     }
+   }
+   ```
+   - Save as `.cursor/mcp.json` (for most MCP clients) or `claude_desktop_config.json` (for Claude Desktop).
+   - **Just add your agent secret!**
+
+2. **Run your AI assistant** (Claude, ChatGPT, or any MCP-compatible client) and connect using the config above.
+
+### B. Local Setup (for development)
+
 1. **Clone the repo:**
    ```bash
    git clone [your-repo-url]
@@ -124,60 +129,23 @@ flowchart TD
 2. **Set your environment variables:**
    - `AGENT_SECRET` (your Stellar secret key for signing transactions)
    - (Optional) `POOL_FACTORY_ID`, `BACKSTOP_ID`, etc. for advanced features
-3. **Connect your AI assistant or app:**
-   - dont forget to do and then see connect your ai assistant 
+3. **Build and run:**
    ```bash
    npm run build
+   # then run your MCP server as needed
    ```
-   - Use the MCP protocol (stdio or HTTP) to send commands and receive results.
-   - See `src/server.ts` for available tools and schemas.
-
-## 🤖 How to Connect Your AI Assistant
-
-- **ChatGPT, Claude, or Custom Bot:**
-  - Point your assistant to the MCP server endpoint.
-  - Provide your Stellar secret key (AGENT_SECRET) for transaction signing.
-  - Issue natural language commands, e.g.:
-    - "Lend 100 USDC to Pool X"
-    - "Analyze Pool Y and tell me if it's safe to lend"
-    - "If safe, lend 40% of my XLM to Pool Y"
-    - "Buy this NFT and pay later using Blend"
-
-### Example MCP Connection Config (soon will add npx support)
-
-```jsonc
-{
-  "mcpServers": {
-    "Blend Protocol MCP": {
-      "command": "node",
-      "args": [
-        "/path/to/your/BlendMcp/dist/server.js"
-      ],
-      "env": {
-        "AGENT_SECRET": "<YOUR_STELLAR_SECRET_KEY>",
-        "RPC_URL": "https://soroban-testnet.stellar.org",
-        "BACKSTOP_ID_V2": "<OPTIONAL_BACKSTOP_ID_V2>",
-        "POOL_FACTORY_ID": "<OPTIONAL_POOL_FACTORY_ID>"
-      }
-    }
-  }
-}
-```
-
-- **args**: Path to your MCP server entry point
-- **env**: Environment variables for signing and network config
-  - `AGENT_SECRET`: Your Stellar secret key (required for signing transactions)
-  - `RPC_URL`: Soroban RPC endpoint (testnet or mainnet)
-  - `BACKSTOP_ID`, `POOL_FACTORY_ID`, etc.: Optional advanced config
 
 ---
 
-## 🧠 Example Advanced Queries
+## 🤖 How to Connect Your AI Assistant
 
-- "Analyze Pool X for risk, and if it's safe, lend 40% of my XLM."
-- "Create a new pool, add a reserve, and lend 100 USDC."
-- "Borrow from Pool Y, buy an NFT, and set up a repayment plan."
-- "Show me my current positions and risk exposure."
+- **Claude Desktop:**
+  - Add the config above to `claude_desktop_config.json`.
+  - [Anthropic MCP Docs](https://docs.anthropic.com/en/docs/mcp)
+  - [MCP Connector Guide](https://docs.anthropic.com/en/docs/agents-and-tools/mcp-connector)
+  - [Claude Desktop Integration Example](https://github.com/davidteren/claude-server/blob/main/docs/CLAUDE_DESKTOP_INTEGRATION.md)
+- **Other Assistants:**
+  - Use the same config format for any MCP-compatible client.
 
 ---
 
@@ -190,12 +158,11 @@ flowchart TD
 
 ## 📬 Contact
 
-- Tanishq
-- email:- tanishq162005@gmail.com
+- Tanishq — tanishq162005@gmail.com
 
 ---
 
 ## 📝 Notes
 
 - **Blend MCP is under active development.** More features and integrations are coming soon!
-- Built for the Stellar Blend hackathon, but designed for long-term extensibility and composability. 
+- Built for the Stellar Blend hackathon, but designed for long-term extensibility and composability.

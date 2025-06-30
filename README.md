@@ -6,6 +6,12 @@
 
 **Blend MCP** is the universal AI gateway for the Blend Protocol on Stellar. It exposes all Blend DeFi actions—lending, borrowing, pool creation, risk analysis, and more—as simple, composable tools accessible by any AI assistant, bot, or app.
 
+
+
+https://github.com/user-attachments/assets/008f02d5-1037-4b28-b1be-0af312f88de4
+
+
+
 ---
 
 ## 🚀 Features

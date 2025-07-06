@@ -168,6 +168,8 @@ flowchart TD
 ---
 
 ## 📝 Notes
+- Got 2 offers to sell this project ($2800 and $1900)
+- it is built for blend ecosystem
 
 - **Blend MCP is under active development.** More features and integrations are coming soon!
 - Built for the Stellar Blend hackathon, but designed for long-term extensibility and composability.
